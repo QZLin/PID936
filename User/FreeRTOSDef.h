@@ -6,10 +6,12 @@
 #define TICK_SENSOR (portTICK_PERIOD_MS*1)
 #define TICK_DISPLAY 10
 #define TICK_INPUT 10
+#define TICK_INFO (portTICK_PERIOD_MS*50)
 
 #define PRIO_SENSOR 6
 #define PRIO_INPUT 6
 #define PRIO_DISPLAY 5
+#define PRIO_INFO 4
 
 #define STK_SIZE_BASE 64
 #define TASK_STK_SIZE1 (STK_SIZE_BASE*5)

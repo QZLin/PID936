@@ -1,9 +1,11 @@
-#include "uart_cmd.h"
+#include "UARTCmd.h"
 #include "ch32x035.h"
 #include "stdio.h"
 #include "string.h"
 #include "stdlib.h"
 
+extern u16 thVal;
+extern volatile u8 parseLen;
 UART_Manager_t uartManager = {0};
 
 // Version information
@@ -19,10 +21,8 @@ UART_Manager_t uartManager = {0};
  *
  * @return  none
  */
-void UART_SendByte(uint8_t byte)
-{
-    while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET)
-    {
+void UART_SendByte(uint8_t byte) {
+    while (USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET) {
     }
     USART_SendData(USART2, byte);
 }
@@ -36,10 +36,8 @@ void UART_SendByte(uint8_t byte)
  *
  * @return  none
  */
-void UART_SendString(const char* str)
-{
-    while (*str)
-    {
+void UART_SendString(const char *str) {
+    while (*str) {
         UART_SendByte(*str++);
     }
 }
@@ -51,8 +49,7 @@ void UART_SendString(const char* str)
  *
  * @return  none
  */
-void UART_ReceiveInit(void)
-{
+void UART_ReceiveInit(void) {
     NVIC_InitTypeDef NVIC_InitStructure = {0};
 
     // Enable USART2 interrupt
@@ -80,10 +77,9 @@ void UART_ReceiveInit(void)
  *
  * @return  none
  */
-static void ParseCommand(uint8_t* buffer, uint16_t length)
-{
+static void ParseCommand(const uint8_t *buffer, const uint16_t length) {
     char cmd[UART_CMD_BUFFER_SIZE];
-    char* argv[MAX_ARGS];
+    char *argv[MAX_ARGS];
     int argc = 0;
 
     // Copy to local buffer
@@ -91,10 +87,9 @@ static void ParseCommand(uint8_t* buffer, uint16_t length)
     cmd[length] = '\0';
 
     // Parse arguments
-    char* ptr = cmd;
+    char *ptr = cmd;
 
-    while (*ptr && argc < MAX_ARGS)
-    {
+    while (*ptr && argc < MAX_ARGS) {
         // Skip spaces
         while (*ptr == ' ' || *ptr == '\t')
             ptr++;
@@ -109,8 +104,7 @@ static void ParseCommand(uint8_t* buffer, uint16_t length)
         while (*ptr && *ptr != ' ' && *ptr != '\t' && *ptr != '\n' && *ptr != '\r')
             ptr++;
 
-        if (*ptr)
-        {
+        if (*ptr) {
             *ptr = '\0';
             ptr++;
         }
@@ -120,11 +114,9 @@ static void ParseCommand(uint8_t* buffer, uint16_t length)
         return;
 
     // Command: echo <message>
-    if (strcmp(argv[0], "echo") == 0)
-    {
+    if (strcmp(argv[0], "echo") == 0) {
         UART_SendString("ECHO: ");
-        for (int i = 1; i < argc; i++)
-        {
+        for (int i = 1; i < argc; i++) {
             UART_SendString(argv[i]);
             if (i < argc - 1)
                 UART_SendString(" ");
@@ -132,42 +124,40 @@ static void ParseCommand(uint8_t* buffer, uint16_t length)
         UART_SendString("\r\n");
     }
     // Command: version
-    else if (strcmp(argv[0], "version") == 0)
-    {
+    else if (strcmp(argv[0], "version") == 0) {
         printf("Firmware Version: %s\r\n", FIRMWARE_VERSION);
         printf("Build Date: %s\r\n", FIRMWARE_DATE);
     }
     // Command: set-value <value>
-    else if (strcmp(argv[0], "set-value") == 0)
-    {
-        if (argc > 1)
-        {
+    else if (strcmp(argv[0], "set") == 0) {
+        if (argc > 1) {
             int32_t value = atoi(argv[1]);
             uartManager.storedValue = value;
             printf("Value set to: %ld\r\n", uartManager.storedValue);
-        }
-        else
-        {
+        } else {
             UART_SendString("Error: set-value requires an argument\r\n");
         }
     }
     // Command: get-value
-    else if (strcmp(argv[0], "get-value") == 0)
-    {
-        printf("Stored value: %ld\r\n", uartManager.storedValue);
+    else if (strcmp(argv[0], "get") == 0) {
+        const char *key = argv[1];
+        if (strcmp(key, "th") == 0) {
+            printf("th:%u\r\n", thVal);
+        } else if (strcmp(key, "target") == 0) {
+            printf("target:%u\r\n", parseLen);
+        } else {
+            printf("keyError\r\n");
+        }
     }
     // Command: help
-    else if (strcmp(argv[0], "help") == 0)
-    {
+    else if (strcmp(argv[0], "help") == 0) {
         UART_SendString("Available commands:\r\n");
         UART_SendString("  echo <message>    - Echo back the message\r\n");
         UART_SendString("  version           - Show firmware version\r\n");
         UART_SendString("  set-value <val>   - Set a stored value\r\n");
         UART_SendString("  get-value         - Get the stored value\r\n");
         UART_SendString("  help              - Show this help message\r\n");
-    }
-    else
-    {
+    } else {
         printf("Unknown command: %s\r\n", argv[0]);
         UART_SendString("Type 'help' for available commands\r\n");
     }
@@ -180,25 +170,20 @@ static void ParseCommand(uint8_t* buffer, uint16_t length)
  *
  * @return  none
  */
-void UART_ProcessReceived(void)
-{
+void UART_ProcessReceived(void) {
     // Check if we have a complete command (line ending with \r or \n)
-    if (uartManager.rxIndex > 0)
-    {
+    if (uartManager.rxIndex > 0) {
         uint8_t lastChar = uartManager.rxBuffer[uartManager.rxIndex - 1];
 
-        if (lastChar == '\r' || lastChar == '\n')
-        {
+        if (lastChar == '\r' || lastChar == '\n') {
             // Find actual command end (remove \r\n)
             uint16_t cmdEnd = uartManager.rxIndex;
             while (cmdEnd > 0 && (uartManager.rxBuffer[cmdEnd - 1] == '\r' ||
-                uartManager.rxBuffer[cmdEnd - 1] == '\n'))
-            {
+                                  uartManager.rxBuffer[cmdEnd - 1] == '\n')) {
                 cmdEnd--;
             }
 
-            if (cmdEnd > 0)
-            {
+            if (cmdEnd > 0) {
                 // Echo the input
                 UART_SendString("\r\n");
 
@@ -224,17 +209,13 @@ void UART_ProcessReceived(void)
  *
  * @return  none
  */
-void UART_ReceiveHandler(uint8_t byte)
-{
-    if (uartManager.rxIndex < UART_RX_BUFFER_SIZE)
-    {
+void UART_ReceiveHandler(uint8_t byte) {
+    if (uartManager.rxIndex < UART_RX_BUFFER_SIZE) {
         uartManager.rxBuffer[uartManager.rxIndex++] = byte;
 
         // Echo the character
         UART_SendByte(byte);
-    }
-    else
-    {
+    } else {
         // Buffer overflow, reset
         uartManager.rxIndex = 0;
         UART_SendString("\r\nBuffer overflow!\r\n>>> ");

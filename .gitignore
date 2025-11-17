@@ -2,6 +2,7 @@
 launch.json
 obj/*
 *.bak
+.env
 
 # Prerequisites
 *.d
