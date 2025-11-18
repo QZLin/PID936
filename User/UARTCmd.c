@@ -12,13 +12,10 @@ UART_Manager_t uartManager = {0};
 #define FIRMWARE_VERSION "1.0.0"
 #define FIRMWARE_DATE "2025-11-13"
 
-/*********************************************************************
+/**
  * @fn      UART_SendByte
- *
  * @brief   Send a single byte via UART2
- *
  * @param   byte - byte to send
- *
  * @return  none
  */
 void UART_SendByte(uint8_t byte) {
@@ -27,13 +24,10 @@ void UART_SendByte(uint8_t byte) {
     USART_SendData(USART2, byte);
 }
 
-/*********************************************************************
+/**
  * @fn      UART_SendString
- *
  * @brief   Send a string via UART2
- *
  * @param   str - string to send
- *
  * @return  none
  */
 void UART_SendString(const char *str) {
@@ -42,11 +36,9 @@ void UART_SendString(const char *str) {
     }
 }
 
-/*********************************************************************
+/**
  * @fn      UART_ReceiveInit
- *
  * @brief   Initialize UART2 receive interrupt
- *
  * @return  none
  */
 void UART_ReceiveInit(void) {
@@ -67,14 +59,11 @@ void UART_ReceiveInit(void) {
     uartManager.cmdLength = 0;
 }
 
-/*********************************************************************
+/**
  * @fn      ParseCommand
- *
  * @brief   Parse command from received buffer
- *
  * @param   buffer - command string
  * @param   length - command length
- *
  * @return  none
  */
 static void ParseCommand(const uint8_t *buffer, const uint16_t length) {
@@ -163,11 +152,9 @@ static void ParseCommand(const uint8_t *buffer, const uint16_t length) {
     }
 }
 
-/*********************************************************************
+/**
  * @fn      UART_ProcessReceived
- *
  * @brief   Process received UART data
- *
  * @return  none
  */
 void UART_ProcessReceived(void) {
@@ -200,13 +187,10 @@ void UART_ProcessReceived(void) {
     }
 }
 
-/*********************************************************************
+/**
  * @fn      UART_ReceiveHandler
- *
  * @brief   Handle received byte from UART
- *
  * @param   byte - received byte
- *
  * @return  none
  */
 void UART_ReceiveHandler(uint8_t byte) {

@@ -18,5 +18,3 @@ __asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;"); \
 __asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;"); \
 __asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;"); \
 } while(0)
-
-#define TEMP_LED 0b01000000
