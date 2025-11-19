@@ -5,7 +5,7 @@
 #include "stdlib.h"
 
 extern u16 thVal;
-extern volatile u8 parseLen;
+extern volatile u8 triggerPeriod;
 UART_Manager_t uartManager = {0};
 
 // Version information
@@ -133,7 +133,7 @@ static void ParseCommand(const uint8_t *buffer, const uint16_t length) {
         if (strcmp(key, "th") == 0) {
             printf("th:%u\r\n", thVal);
         } else if (strcmp(key, "target") == 0) {
-            printf("target:%u\r\n", parseLen);
+            printf("target:%u\r\n", triggerPeriod);
         } else {
             printf("keyError\r\n");
         }
