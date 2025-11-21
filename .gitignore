@@ -3,6 +3,7 @@ launch.json
 obj/*
 *.bak
 .env
+.mrs/*snapshot
 
 # Prerequisites
 *.d

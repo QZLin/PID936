@@ -13,12 +13,12 @@
 #define __SYSTEM_CH32X035_H
 
 #ifdef __cplusplus
- extern "C" {
-#endif 
+extern "C" {
+#endif
 
-extern uint32_t SystemCoreClock;          /* System Clock Frequency (Core Clock) */
+extern uint32_t SystemCoreClock; /* System Clock Frequency (Core Clock) */
 
-/* System_Exported_Functions */  
+/* System_Exported_Functions */
 extern void SystemInit(void);
 extern void SystemCoreClockUpdate(void);
 
@@ -27,6 +27,3 @@ extern void SystemCoreClockUpdate(void);
 #endif
 
 #endif
-
-
-

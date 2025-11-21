@@ -11,8 +11,10 @@
 *******************************************************************************/
 #include "ch32x035_it.h"
 
-void NMI_Handler(void) __attribute__((interrupt()));
-void HardFault_Handler(void) __attribute__((interrupt()));
+void NMI_Handler(void) __attribute__
+((interrupt()));
+void HardFault_Handler(void) __attribute__
+((interrupt()));
 
 /*********************************************************************
  * @fn      NMI_Handler
@@ -24,8 +26,8 @@ void HardFault_Handler(void) __attribute__((interrupt()));
 void NMI_Handler(void)
 {
     while (1)
-  {
-  }
+    {
+    }
 }
 
 /*********************************************************************
@@ -37,10 +39,8 @@ void NMI_Handler(void)
  */
 void HardFault_Handler(void)
 {
-  NVIC_SystemReset();
-  while (1)
-  {
-  }
+    NVIC_SystemReset();
+    while (1)
+    {
+    }
 }
-
-

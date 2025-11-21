@@ -33,6 +33,8 @@ typedef struct Flag {
 } Flag_t;
 
 typedef struct State {
+    u16 curValue;
+    u16 dstValue;
     u16 curTemp;
     u16 dstTemp;
 } State_t;
@@ -58,6 +60,9 @@ SemaphoreHandle_t xZeroSemaphore = NULL;
 SemaphoreHandle_t xCounterMutex = NULL;
 SemaphoreHandle_t x595Mutex = NULL;
 
+//UART DEF
+u8 TxBuffer2[16] = {0};
+u8 RxBuffer2[16] = {0};
 
 static inline void SetGPIO(GPIO_TypeDef* GPIOx, GPIO_InitTypeDef def,
                            const uint32_t pin) {
@@ -66,7 +71,7 @@ static inline void SetGPIO(GPIO_TypeDef* GPIOx, GPIO_InitTypeDef def,
 }
 
 static void print_binary(const u8 num) {
-    for (int i = 7; i >= 0; i--)
+    for(int i = 7; i >= 0; i--)
         putchar(num & 1 << i ? '1' : '0');
     putchar(13);
     putchar(10);
@@ -193,7 +198,7 @@ static inline void TIM2Init(void) {
     TIM_TimeBaseInitTypeDef TIM_TimeBaseInitStruct = {0};
     NVIC_InitTypeDef NVIC_InitStruct = {0};
 
-    TIM_TimeBaseInitStruct.TIM_Period = triggerPeriod; // 自动重装载值 (10kHz/10 = 1kHz -> 1ms)
+    TIM_TimeBaseInitStruct.TIM_Period = 10; // 自动重装载值 (10kHz/10 = 1kHz -> 1ms)
     TIM_TimeBaseInitStruct.TIM_Prescaler = 4800 - 1; // 预分频值 (48MHz/4800 = 10kHz)
     TIM_TimeBaseInitStruct.TIM_ClockDivision = TIM_CKD_DIV1;
     TIM_TimeBaseInitStruct.TIM_CounterMode = TIM_CounterMode_Up;
@@ -221,7 +226,7 @@ static inline void FlagInit() {
 }
 
 static inline void TIM2_StartSingleShot(void) {
-    if (flag.tempChanged) {
+    if(flag.tempChanged) {
         TIM_Cmd(TIM2, DISABLE); // 使能定时器（单次模式，计数到ARR后自动停止）
         TIM_SetAutoreload(TIM2, triggerPeriod);
         flag.tempChanged = false;
@@ -232,19 +237,18 @@ static inline void TIM2_StartSingleShot(void) {
 }
 
 static inline void TriggerOnce(void) {
-    if (flag.heating) {
+    if(flag.heating) {
         GPIO_SetBits(PORT_CONTROL, PIN_CONTROL);
         TIM2_StartSingleShot();
     }
 }
 
 /// @brief
-void taskCrossZero(void* pvParameters) {
+_Noreturn void taskCrossZero(void* pvParameters) {
     PRINT("TASK x0\r\n");
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;) {
+    for(;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        if (xSemaphoreTake(xCounterMutex, pdMS_TO_TICKS(100))) {
+        if(xSemaphoreTake(xCounterMutex, pdMS_TO_TICKS(100))) {
             x0Count = counter;
             counter = 0;
             xSemaphoreGive(xCounterMutex);
@@ -253,13 +257,12 @@ void taskCrossZero(void* pvParameters) {
 }
 
 /// @brief cross zero counter per second
-void taskX0Counter(void* pvParameters) {
+_Noreturn void taskX0Counter(void* pvParameters) {
     GPIO_ResetBits(PORT_CONTROL, PIN_CONTROL);
 
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;) {
-        if (xSemaphoreTake(xZeroSemaphore, portMAX_DELAY) == pdTRUE) {
-            if (xSemaphoreTake(xCounterMutex, portMAX_DELAY) == pdTRUE) {
+    for(;;) {
+        if(xSemaphoreTake(xZeroSemaphore, portMAX_DELAY) == pdTRUE) {
+            if(xSemaphoreTake(xCounterMutex, portMAX_DELAY) == pdTRUE) {
                 counter++;
                 xSemaphoreGive(xCounterMutex);
             }
@@ -268,34 +271,31 @@ void taskX0Counter(void* pvParameters) {
 }
 
 /// @brief
-void taskControl(void* pvParameters) {
+_Noreturn void taskControl(void* pvParameters) {
     // u8 lastPeriod = 0;
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;) {
-        if (!flag.power) {
+    for(;;) {
+        if(!flag.power) {
             flag.heating = false;
             vTaskDelay(pdMS_TO_TICKS(1));
             continue;
         }
+        state.curValue = thVal;
         state.curTemp = ADCToTemp(thVal);
         flag.heating = true;
-        // u8 period = TempToPeriod(state.curTemp, state.dstTemp);
-        // if (state.curTemp < state.dstTemp)
-        // {
-        //     flag.heating = true;
-        // }
-        // else
-        // {
-        //     flag.heating = false;
-        // }
+        u8 period = TempToPeriod(state.curTemp, state.dstTemp);
+        if(state.curTemp < state.dstTemp) {
+            flag.heating = true;
+        }
+        else {
+            flag.heating = false;
+        }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
-void taskShowTemp(void* pvParameters) {
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;) {
-        if (!flag.heating) {
+_Noreturn void taskShowTemp(void* pvParameters) {
+    for(;;) {
+        if(!flag.heating) {
             hc595Data &= ~LED_TEMP;
             vTaskDelay(TICK_INFO);
             continue;
@@ -303,12 +303,12 @@ void taskShowTemp(void* pvParameters) {
         u16 highTick = pdMS_TO_TICKS(500);
         u16 lowTick = pdMS_TO_TICKS(500);
         PeriodToLEDf(triggerPeriod, &highTick, &lowTick);
-        if (xSemaphoreTake(x595Mutex, portMAX_DELAY)) {
+        if(xSemaphoreTake(x595Mutex, portMAX_DELAY)) {
             hc595Data |= LED_TEMP;
             xSemaphoreGive(x595Mutex);
         }
         vTaskDelay(highTick);
-        if (xSemaphoreTake(x595Mutex, portMAX_DELAY)) {
+        if(xSemaphoreTake(x595Mutex, portMAX_DELAY)) {
             hc595Data &= ~LED_TEMP;
             xSemaphoreGive(x595Mutex);
         }
@@ -321,7 +321,7 @@ void taskShowTemp(void* pvParameters) {
  */
 __attribute__((interrupt())) void EXTI15_8_IRQHandler(void) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    if (EXTI_GetITStatus(LINE_CROSSZERO) != RESET) {
+    if(EXTI_GetITStatus(LINE_CROSSZERO) != RESET) {
         EXTI_ClearITPendingBit(LINE_CROSSZERO);
         xSemaphoreGiveFromISR(xZeroSemaphore, &xHigherPriorityTaskWoken);
         TriggerOnce();
@@ -333,7 +333,7 @@ __attribute__((interrupt())) void EXTI15_8_IRQHandler(void) {
  * @brief TIM2
  */
 __attribute__((interrupt())) void TIM2_UP_IRQHandler(void) {
-    if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET) {
+    if(TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET) {
         TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
         GPIO_ResetBits(PORT_CONTROL, PIN_CONTROL); // 拉低
     }
@@ -344,7 +344,7 @@ __attribute__((interrupt())) void TIM2_UP_IRQHandler(void) {
  * @brief RST
  */
 __attribute__((interrupt())) void EXTI7_0_IRQHandler(void) {
-    if (EXTI_GetITStatus(EXTI_Line7) != RESET) {
+    if(EXTI_GetITStatus(EXTI_Line7) != RESET) {
         EXTI_ClearITPendingBit(EXTI_Line7);
         printf("RST\r\n");
         NVIC_SystemReset();
@@ -352,33 +352,29 @@ __attribute__((interrupt())) void EXTI7_0_IRQHandler(void) {
 }
 #endif
 
-#define TxSize2    (size(TxBuffer2))
-#define size(a)    (sizeof(a) / sizeof(*(a)))
-u8 TxBuffer2[] = "#Buffer2 Send from USART3 to USART2 using Interrupt!";
-u8 RxBuffer2[TxSize2] = {0}; /* USART3 Using  */
+
 /**
  * @brief   This function handles USART2 global interrupt request.
  */
 __attribute__((interrupt())) void USART2_IRQHandler(void) {
-    if (USART_GetITStatus(USART2, USART_IT_RXNE) != RESET) {
+    if(USART_GetITStatus(USART2, USART_IT_RXNE) != RESET) {
         const u8 data = USART_ReceiveData(USART2);
         UART_ReceiveHandler(data);
     }
 }
 
 /// @brief 74HC595 LED
-void taskHC595Out(void* pvParameters) {
+_Noreturn void taskHC595Out(void* pvParameters) {
     PRINT("TASK 595dis\r\n");
     u8 lastState = 0b0;
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;) {
-        if (lastState != hc595Data) {
+    for(;;) {
+        if(lastState != hc595Data) {
             taskENTER_CRITICAL();
             u8 data = (u8)~hc595Data;
             // __asm__ volatile ("nop");
             taskEXIT_CRITICAL();
-            for (u8 i = 0; i < 8; i++) {
-                if (data & 0x80)
+            for(u8 i = 0; i < 8; i++) {
+                if(data & 0x80)
                     GPIO_SetBits(PORT_SER595, PIN_SER595);
                 else
                     GPIO_ResetBits(PORT_SER595, PIN_SER595);
@@ -399,12 +395,12 @@ void taskHC595Out(void* pvParameters) {
 }
 
 void taskHello(void* pvParameters) {
-    if (!xSemaphoreTake(x595Mutex, pdMS_TO_TICKS(100)))
+    if(!xSemaphoreTake(x595Mutex, pdMS_TO_TICKS(100)))
         return;
     const u8 lastState = hc595Data;
     u8 temp = 0x1;
     hc595Data = temp;
-    for (u8 i = 0; i < 8; i++) {
+    for(u8 i = 0; i < 8; i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
         temp = temp << 1;
         hc595Data = temp;
@@ -418,77 +414,75 @@ void taskHello(void* pvParameters) {
 
 static void handleKey(const u8 v) {
 #define MASK(bin) ((v & bin) == 0)
-    if (v == 0b01111111) {
+    if(v == 0b01111111) {
         printf("TH:%u X/S:%u T:%u\r\n", thVal, x0Count, state.dstTemp);
-    } else if (MASK(BTN_DBG)) // DBG
+    }
+    else if(MASK(BTN_DBG)) // DBG
     {
-        /*if (MASK(0b00000001))
-        {
-            if (xSemaphoreTake(x595Mutex, pdMS_TO_TICKS(100)))
-            {
-                hc595Data++;
-                xSemaphoreGive(x595Mutex);
+        if(MASK(BTN_RST)) {
+            if(HandlerHello == NULL) {
+                printf("OwO\r\n");
+                xTaskCreate(taskHello, "OwO",TASK_STK_SIZE2,NULL,PRIO_DISPLAY, &HandlerHello);
             }
         }
-        else*/
-        if (MASK(BTN_RST)) {
-            if (HandlerHello == NULL) {
-                printf("OwO\r\n");
-                xTaskCreate(taskHello, "OwO",TASK_STK_SIZE3,NULL,PRIO_DISPLAY,
-                            &HandlerHello);
-            }
-        } else if (MASK(BTN_PWR)) {
+        else if(MASK(BTN_PWR)) {
             //手动触发一次以测试
             printf("*");
             TriggerOnce();
-        } else if (MASK(BTN_ADD)) {
-            if (triggerPeriod < MAX_PERIOD) {
+        }
+        else if(MASK(BTN_ADD)) {
+            if(triggerPeriod < MAX_PERIOD) {
                 triggerPeriod++;
                 flag.tempChanged = true;
             }
-        } else if (MASK(BTN_SUB)) {
-            if (triggerPeriod > MIN_PERIOD) {
+        }
+        else if(MASK(BTN_SUB)) {
+            if(triggerPeriod > MIN_PERIOD) {
                 triggerPeriod--;
                 flag.tempChanged = true;
             }
         }
-    } else if (MASK(BTN_ADD)) {
-        if (state.dstTemp < TEMP_MAX)
+    }
+    else if(MASK(BTN_ADD)) {
+        if(state.dstTemp < TEMP_MAX)
             state.dstTemp += TEMP_STEP;
-        printf("T:Temp=%u\r\n", state.dstTemp);
-    } else if (MASK(BTN_SUB)) {
-        if (state.dstTemp < TEMP_MAX)
+        printf("T:Val=%u\r\n", state.dstValue);
+    }
+    else if(MASK(BTN_SUB)) {
+        if(state.dstTemp < TEMP_MAX)
             state.dstTemp -= TEMP_STEP;
-        printf("T:Temp=%u\r\n", state.dstTemp);
-    } else if (MASK(BTN_RST)) {
+        printf("T:Val=%u\r\n", state.dstValue);
+    }
+    else if(MASK(BTN_RST)) {
         state.dstTemp = TEMP_DEF;
-        printf("T:Temp=%u\r\n", state.dstTemp);
-    } else if (MASK(BTN_PWR)) {
+        printf("T:Val=%u\r\n", state.dstValue);
+    }
+    else if(MASK(BTN_PWR)) {
         flag.power = !flag.power;
         xSemaphoreTake(x595Mutex, portMAX_DELAY);
-        if (flag.power) {
+        if(flag.power) {
             hc595Data |= LED_PWR;
-        } else {
+        }
+        else {
             hc595Data &= ~LED_PWR;
         }
         xSemaphoreGive(x595Mutex);
     }
 }
 
-void taskHC165In(void* pvParameters) {
+_Noreturn void taskHC165In(void* pvParameters) {
     PRINT("TASK HC165IN\r\n");
     u8 lastKey = 0b00000000;
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;) {
+    for(;;) {
         u8 data = 0;
         GPIO_WriteBit(PORT_LD165, PIN_LD165, Bit_RESET);
         vTaskDelay(pdUS_TO_TICKS(1));
         GPIO_WriteBit(PORT_LD165, PIN_LD165, Bit_SET);
         vTaskDelay(pdUS_TO_TICKS(1));
 
-        for (u8 i = 0; i <= 7; i++) {
+        for(u8 i = 0; i <= 7; i++) {
             data <<= 1;
-            if (GPIO_ReadInputDataBit(PORT_SER165, PIN_SER165))
+            if(GPIO_ReadInputDataBit(PORT_SER165, PIN_SER165))
                 data |= 0x01;
 
             GPIO_WriteBit(PORT_CLK165, PIN_CLK165, Bit_SET);
@@ -497,7 +491,7 @@ void taskHC165In(void* pvParameters) {
             vTaskDelay(pdUS_TO_TICKS(1));
         }
         key = data;
-        if (key != lastKey) {
+        if(key != lastKey) {
             handleKey(key);
             lastKey = key;
             PRINT("key:");
@@ -508,36 +502,21 @@ void taskHC165In(void* pvParameters) {
 }
 
 /// @brief Read TH ADC val
-void taskReadTH(void* pvParameters) {
+_Noreturn void taskReadTH(void* pvParameters) {
     u16 lastVal = UINT16_MAX;
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;) {
+    for(;;) {
         ADC_RegularChannelConfig(ADC_TEMP, ADC_CH_TEMP, 1, ADC_SampleTime_11Cycles);
         ADC_SoftwareStartConvCmd(ADC_TEMP, ENABLE);
 
-        while (!ADC_GetFlagStatus(ADC_TEMP, ADC_FLAG_EOC)) {
+        while(!ADC_GetFlagStatus(ADC_TEMP, ADC_FLAG_EOC)) {
             vTaskDelay(TICK_SENSOR);
         }
         thVal = ADC_GetConversionValue(ADC_TEMP);
-        if (lastVal != thVal) {
+        if(lastVal != thVal) {
             lastVal = thVal;
         }
         vTaskDelay(TICK_SENSOR);
     }
-}
-
-/// @brief
-void vApplicationStackOverflowHook(TaskHandle_t xTask, char* pcTaskName) {
-    printf("\r\nStack overflow in task: %s\r\n", pcTaskName);
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;);
-}
-
-/// @brief
-void vApplicationMallocFailedHook(void) {
-    printf("\r\nMALLOC FAILED! Free Heap: %u\r\n", xPortGetFreeHeapSize());
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;);
 }
 
 /**
@@ -551,16 +530,16 @@ void task2_task(void* pvParameters) {
 
 
 /// @brief UART Command handler task
-void taskUARTCmd(void* pvParameters) {
+_Noreturn void taskUARTCmd(void* pvParameters) {
     PRINT("UART CMD Task\r\n");
     UART_SendString(">>> ");
 
-    // ReSharper disable once CppDFAEndlessLoop
-    for (;;) {
+    for(;;) {
         UART_ProcessReceived();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
+
 
 /**
  * @fn      main
@@ -590,19 +569,33 @@ int main(void) {
     x595Mutex = xSemaphoreCreateMutex();
 
 #define TSK(func,handler,depth,priority) xTaskCreate(func,#func,depth,NULL,priority,handler)
-    TSK(taskHC595Out, &Handler595DIS, TASK_STK_SIZE1, PRIO_DISPLAY);
-    TSK(taskHC165In, &Handler165IN, TASK_STK_SIZE2, PRIO_INPUT);
-    TSK(taskCrossZero, &HandlerCrossZero, TASK_STK_SIZE2, PRIO_SENSOR);
-    TSK(taskX0Counter, NULL, TASK_STK_SIZE1, PRIO_INFO);
-    TSK(taskReadTH, &HandlerReadTH, TASK_STK_SIZE2, PRIO_SENSOR);
-    TSK(taskUARTCmd, NULL, TASK_STK_SIZE2, PRIO_INPUT);
+    TSK(taskHC595Out, &Handler595DIS, TASK_STK_SIZE4, PRIO_DISPLAY);
+    TSK(taskHC165In, &Handler165IN, TASK_STK_SIZE4, PRIO_INPUT);
+    TSK(taskCrossZero, &HandlerCrossZero, TASK_STK_SIZE3, PRIO_SENSOR);
+    TSK(taskX0Counter, NULL, TASK_STK_SIZE3, PRIO_INFO);
+    TSK(taskReadTH, &HandlerReadTH, TASK_STK_SIZE3, PRIO_SENSOR);
+    TSK(taskUARTCmd, NULL, TASK_STK_SIZE3, PRIO_INPUT);
 
-    TSK(taskShowTemp, NULL, TASK_STK_SIZE4, PRIO_INFO);
+    TSK(taskShowTemp, NULL, TASK_STK_SIZE2, PRIO_INFO);
 
-    TSK(taskHello, &HandlerHello, TASK_STK_SIZE4, PRIO_INFO);
-    TSK(taskControl, NULL, TASK_STK_SIZE1, PRIO_INPUT);
+    TSK(taskHello, &HandlerHello, TASK_STK_SIZE2, PRIO_INFO);
+    TSK(taskControl, NULL, TASK_STK_SIZE5, PRIO_INPUT);
     vTaskStartScheduler();
     // ReSharper disable once CppDFAEndlessLoop
-    for (;;)
+    for(;;)
         assert(1);
+}
+
+/// @brief
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char* pcTaskName) {
+    printf("\r\nStack overflow in task: %s\r\n", pcTaskName);
+    // ReSharper disable once CppDFAEndlessLoop
+    for(;;);
+}
+
+/// @brief
+void vApplicationMallocFailedHook(void) {
+    printf("\r\nMALLOC FAILED! Free Heap: %u\r\n", xPortGetFreeHeapSize());
+    // ReSharper disable once CppDFAEndlessLoop
+    for(;;);
 }
