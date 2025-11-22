@@ -1,11 +1,18 @@
+#include <stdio.h>
+#include <string.h>
 #include "UARTCmd.h"
-#include "ch32x035.h"
-#include "stdio.h"
-#include "string.h"
-#include "stdlib.h"
 
-extern u16 thVal;
+#include <stdlib.h>
+
+#include "ch32x035.h"
+#include "Parameter.h"
+
+extern volatile u16 thVal;
+extern volatile u16 dstVal;
+
+extern u16 x0Count;
 extern volatile u8 triggerPeriod;
+
 UART_Manager_t uartManager = {0};
 
 // Version information
@@ -18,7 +25,7 @@ UART_Manager_t uartManager = {0};
  * @param   byte - byte to send
  * @return  none
  */
-void UART_SendByte(uint8_t byte) {
+void UART_SendByte(const uint8_t byte) {
     while(USART_GetFlagStatus(USART2, USART_FLAG_TXE) == RESET) {
     }
     USART_SendData(USART2, byte);
@@ -104,7 +111,6 @@ static void ParseCommand(const uint8_t* buffer, const uint16_t length) {
 
     // Command: echo <message>
     if(strcmp(argv[0], "echo") == 0) {
-        UART_SendString("ECHO: ");
         for(int i = 1; i < argc; i++) {
             UART_SendString(argv[i]);
             if(i < argc - 1)
@@ -113,19 +119,20 @@ static void ParseCommand(const uint8_t* buffer, const uint16_t length) {
         UART_SendString("\r\n");
     }
     // Command: version
-    else if(strcmp(argv[0], "version") == 0) {
-        printf("Firmware Version: %s\r\n", FIRMWARE_VERSION);
-        printf("Build Date: %s\r\n", FIRMWARE_DATE);
+    else if(strcmp(argv[0], "ver") == 0) {
+        printf("ver: %s\r\n", FIRMWARE_VERSION);
+        printf("date: %s\r\n", FIRMWARE_DATE);
     }
     // Command: set-value <value>
     else if(strcmp(argv[0], "set") == 0) {
-        if(argc > 1) {
-            int32_t value = atoi(argv[1]);
-            uartManager.storedValue = value;
-            printf("Value set to: %ld\r\n", uartManager.storedValue);
+        if(argc > 2) {
+            const char* key = argv[1];
+            char* unused_ptr;
+            const int16_t value = (int16_t)strtol(argv[2], &unused_ptr, 10);
+            printf("%s=%d", key, value);
         }
         else {
-            UART_SendString("Error: set-value requires an argument\r\n");
+            printf("Err: set <key> <val>\r\n");
         }
     }
     // Command: get-value
@@ -134,25 +141,25 @@ static void ParseCommand(const uint8_t* buffer, const uint16_t length) {
         if(strcmp(key, "th") == 0) {
             printf("th:%u\r\n", thVal);
         }
-        else if(strcmp(key, "target") == 0) {
-            printf("target:%u\r\n", triggerPeriod);
+        else if(strcmp(key, "dst") == 0) {
+            printf("dst:%u\r\n", dstVal);
+        }
+        else if(strcmp(key, "period") == 0) {
+            printf("period:%u\r\n", triggerPeriod);
+        }
+        else if(strcmp(key, "x0") == 0) {
+            printf("x0:%u\r\n", x0Count);
         }
         else {
-            printf("keyError\r\n");
+            printf("keyErr\r\n");
         }
     }
     // Command: help
     else if(strcmp(argv[0], "help") == 0) {
-        UART_SendString("Available commands:\r\n");
-        UART_SendString("  echo <message>    - Echo back the message\r\n");
-        UART_SendString("  version           - Show firmware version\r\n");
-        UART_SendString("  set-value <val>   - Set a stored value\r\n");
-        UART_SendString("  get-value         - Get the stored value\r\n");
-        UART_SendString("  help              - Show this help message\r\n");
+        printf("help echo ver get set ");
     }
     else {
         printf("Unknown command: %s\r\n", argv[0]);
-        UART_SendString("Type 'help' for available commands\r\n");
     }
 }
 
@@ -164,8 +171,7 @@ static void ParseCommand(const uint8_t* buffer, const uint16_t length) {
 void UART_ProcessReceived(void) {
     // Check if we have a complete command (line ending with \r or \n)
     if(uartManager.rxIndex > 0) {
-        uint8_t lastChar = uartManager.rxBuffer[uartManager.rxIndex - 1];
-
+        const uint8_t lastChar = uartManager.rxBuffer[uartManager.rxIndex - 1];
         if(lastChar == '\r' || lastChar == '\n') {
             // Find actual command end (remove \r\n)
             uint16_t cmdEnd = uartManager.rxIndex;
@@ -175,18 +181,11 @@ void UART_ProcessReceived(void) {
             }
 
             if(cmdEnd > 0) {
-                // Echo the input
-                UART_SendString("\r\n");
-
-                // Parse and execute command
-                ParseCommand(uartManager.rxBuffer, cmdEnd);
-
-                // Prompt
-                UART_SendString(">>> ");
+                UART_SendString("\r\n"); // Echo the input
+                ParseCommand(uartManager.rxBuffer, cmdEnd); // Parse and execute command
+                UART_SendString(">>> "); // Prompt
             }
-
-            // Clear buffer
-            uartManager.rxIndex = 0;
+            uartManager.rxIndex = 0; // Clear buffer
         }
     }
 }
@@ -197,12 +196,11 @@ void UART_ProcessReceived(void) {
  * @param   byte - received byte
  * @return  none
  */
-void UART_ReceiveHandler(uint8_t byte) {
+void UART_ReceiveHandler(const uint8_t byte) {
     if(uartManager.rxIndex < UART_RX_BUFFER_SIZE) {
         uartManager.rxBuffer[uartManager.rxIndex++] = byte;
-
         // Echo the character
-        UART_SendByte(byte);
+        // UART_SendByte(byte);
     }
     else {
         // Buffer overflow, reset

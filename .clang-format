@@ -52,5 +52,6 @@ SpacesInConditionalStatement: false
 SpacesInCStyleCastParentheses: false
 SpacesInParentheses: false
 TabWidth: 4
+ReflowComments: Never
 SpaceBeforeParens: Never
 ...

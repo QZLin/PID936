@@ -18,12 +18,13 @@
 #define RX_PIN GPIO_Pin_3
 #define TX_PIN GPIO_Pin_2
 
-#define PORT_CROSSZERO GPIOA
-#define PIN_CROSSZERO GPIO_Pin_11
-#define PORT_SRC_CROSSZERO GPIO_PortSourceGPIOA
-#define PIN_SRC_CROSSZERO GPIO_PinSource11
-#define LINE_CROSSZERO EXTI_Line11
-#define IRQ_CROSSZERO EXTI15_8_IRQn
+/// cross zero detection
+#define PORT_X0 GPIOA
+#define PIN_X0 GPIO_Pin_11
+#define PORT_SRC_X0 GPIO_PortSourceGPIOA
+#define PIN_SRC_X0 GPIO_PinSource11
+#define LINE_X0 EXTI_Line11
+#define IRQ_X0 EXTI15_8_IRQn
 
 #define PORT_CONTROL GPIOA
 #define PIN_CONTROL GPIO_Pin_9
@@ -41,8 +42,10 @@
 #define ADC_W ADC1
 #define ADC_CH_W ADC_Channel_1
 
-#define LED_TEMP 0b01000000
-#define LED_PWR 0b10000000
+#define LED_TEMP  0b01000000
+#define LED_PWR   0b10000000
+#define LED_WARN  0b00000010
+#define LED_READY 0b00000001
 
 #define BTN_DBG 0b10000000
 #define BTN_PWR 0b00000001

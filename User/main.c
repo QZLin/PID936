@@ -20,24 +20,7 @@ Project: PID936/CH32x033F8P6
 /* Global define */
 #include <stdbool.h>
 #include "FreeRTOSDef.h"
-
-typedef struct Flag {
-    bool power : 1;
-    bool heating : 1;
-    bool tempChanged : 1;
-    bool  : 1;
-    bool  : 1;
-    bool  : 1;
-    bool  : 1;
-    bool  : 1;
-} Flag_t;
-
-typedef struct State {
-    u16 curValue;
-    u16 dstValue;
-    u16 curTemp;
-    u16 dstTemp;
-} State_t;
+#include "timers.h"
 
 /* Global Variable */
 TaskHandle_t Task1Task_Handler, Task2Task_Handler;
@@ -45,15 +28,16 @@ TaskHandle_t Handler595DIS, Handler165IN, HandlerCrossZero, HandlerReadTH,
              HandlerControl;
 TaskHandle_t HandlerHello;
 //
-volatile u8 hc595Data = 0;
+volatile u8 hc595Data = LED_READY;
 volatile u8 key = 0;
 // 50Hz, t=0.02s interval=0.01s=10ms=10 000us
 volatile u8 triggerPeriod = 1;
 volatile Flag_t flag = {0};
-volatile State_t state = {0};
+//
+volatile u16 thVal = 0;
+volatile u16 dstVal = 0;
 //
 u16 counter = 0;
-u16 thVal = 0;
 u16 x0Count = 0;
 
 SemaphoreHandle_t xZeroSemaphore = NULL;
@@ -63,12 +47,6 @@ SemaphoreHandle_t x595Mutex = NULL;
 //UART DEF
 u8 TxBuffer2[16] = {0};
 u8 RxBuffer2[16] = {0};
-
-static inline void SetGPIO(GPIO_TypeDef* GPIOx, GPIO_InitTypeDef def,
-                           const uint32_t pin) {
-    def.GPIO_Pin = pin;
-    GPIO_Init(GPIOx, &def);
-}
 
 static void print_binary(const u8 num) {
     for(int i = 7; i >= 0; i--)
@@ -88,36 +66,39 @@ static inline void RCC_Cfg() {
 static inline void GPIOInit(void) {
     GPIO_InitTypeDef def = {0};
     def.GPIO_Speed = GPIO_Speed_50MHz;
-    // #define SX(port, pin) SetGPIO(port, def, pin)
-#define SXN(name) SetGPIO(PORT_##name, def,PIN_##name)
+#define SetGPIO(port,pin) \
+    def.GPIO_Pin = pin; \
+    GPIO_Init(port, &def);
+#define SXN(name) SetGPIO(PORT_##name, PIN_##name)
     // HC595D
     def.GPIO_Mode = GPIO_Mode_Out_PP;
     SXN(SER595);
     SXN(ST595);
     SXN(SH595);
+    //
+    // def.GPIO_Mode = GPIO_Mode_Out_PP;
+    SXN(CONTROL);
     // HC165D
-    def.GPIO_Mode = GPIO_Mode_IPU;
-    SXN(SER165);
-    def.GPIO_Mode = GPIO_Mode_Out_PP;
+    // def.GPIO_Mode = GPIO_Mode_Out_PP;
     SXN(CLK165);
     SXN(LD165);
+    def.GPIO_Mode = GPIO_Mode_IPU;
+    SXN(SER165);
     //
     def.GPIO_Mode = GPIO_Mode_AIN;
     SXN(ADC_TEMP);
-    //
-    def.GPIO_Mode = GPIO_Mode_Out_PP;
-    SXN(CONTROL);
 }
 
+// ReSharper disable once CppDFAConstantParameter
 static inline void UART2_CFG(const uint32_t baud_rate) {
     GPIO_InitTypeDef GPIO_InitStructure = {0};
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     USART_InitTypeDef USART_InitStructure = {0};
-    // TX
+
     GPIO_InitStructure.GPIO_Pin = TX_PIN;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
     GPIO_Init(UART_PORT, &GPIO_InitStructure);
-    // RX
+
     GPIO_InitStructure.GPIO_Pin = RX_PIN;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     GPIO_Init(UART_PORT, &GPIO_InitStructure);
@@ -126,8 +107,7 @@ static inline void UART2_CFG(const uint32_t baud_rate) {
     USART_InitStructure.USART_WordLength = USART_WordLength_8b;
     USART_InitStructure.USART_StopBits = USART_StopBits_1;
     USART_InitStructure.USART_Parity = USART_Parity_No;
-    USART_InitStructure.USART_HardwareFlowControl =
-        USART_HardwareFlowControl_None;
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
     USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
     USART_Init(USART2, &USART_InitStructure);
 
@@ -156,19 +136,19 @@ static inline void EXTIInit(void) {
     EXTI_InitTypeDef EXTI_InitStructure = {0};
     NVIC_InitTypeDef NVIC_InitStructure = {0};
 
-    GPIO_InitStructure.GPIO_Pin = PIN_CROSSZERO;
+    GPIO_InitStructure.GPIO_Pin = PIN_X0;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
-    GPIO_Init(PORT_CROSSZERO, &GPIO_InitStructure);
+    GPIO_Init(PORT_X0, &GPIO_InitStructure);
 
-    GPIO_EXTILineConfig(PORT_SRC_CROSSZERO, PIN_SRC_CROSSZERO);
+    GPIO_EXTILineConfig(PORT_SRC_X0, PIN_SRC_X0);
 
-    EXTI_InitStructure.EXTI_Line = LINE_CROSSZERO;
+    EXTI_InitStructure.EXTI_Line = LINE_X0;
     EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
     EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
     EXTI_InitStructure.EXTI_LineCmd = ENABLE;
     EXTI_Init(&EXTI_InitStructure);
 
-    NVIC_InitStructure.NVIC_IRQChannel = IRQ_CROSSZERO;
+    NVIC_InitStructure.NVIC_IRQChannel = IRQ_X0;
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
     NVIC_InitStructure.NVIC_IRQChannelSubPriority = 2;
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
@@ -206,7 +186,7 @@ static inline void TIM2Init(void) {
 
     TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
     TIM_SelectOnePulseMode(TIM2, TIM_OPMode_Single);
-    TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE); // 使能 Update 中断
+    TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE);
 
     NVIC_InitStruct.NVIC_IRQChannel = TIM2_UP_IRQn;
     NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 0;
@@ -217,17 +197,22 @@ static inline void TIM2Init(void) {
     TIM_Cmd(TIM2, DISABLE);
 }
 
-static inline void FlagInit() {
+static inline void StateInit() {
     flag.power = false;
     flag.heating = false;
-    flag.tempChanged = false;
+    flag.tempChanged = true;
+    flag.requireRST = false;
 
-    state.dstTemp = 200;
+    dstVal = VAL_DEF;
+    // state.curValue = 0;
+    // state.dstValue = VAL_DEF;
+    // state.curTemp = 0;
+    // state.dstTemp = 0;
 }
 
 static inline void TIM2_StartSingleShot(void) {
     if(flag.tempChanged) {
-        TIM_Cmd(TIM2, DISABLE); // 使能定时器（单次模式，计数到ARR后自动停止）
+        TIM_Cmd(TIM2, DISABLE);
         TIM_SetAutoreload(TIM2, triggerPeriod);
         flag.tempChanged = false;
     }
@@ -237,22 +222,35 @@ static inline void TIM2_StartSingleShot(void) {
 }
 
 static inline void TriggerOnce(void) {
-    if(flag.heating) {
-        GPIO_SetBits(PORT_CONTROL, PIN_CONTROL);
-        TIM2_StartSingleShot();
+    if(!flag.heating)
+        return;
+    GPIO_SetBits(PORT_CONTROL, PIN_CONTROL);
+    TIM2_StartSingleShot();
+
+}
+
+/// @brief 定时器回调函数
+void CrossZeroTimerCallback(TimerHandle_t xTimer) {
+    if(xSemaphoreTake(xCounterMutex, pdMS_TO_TICKS(100))) {
+        x0Count = counter;
+        counter = 0;
+        xSemaphoreGive(xCounterMutex);
     }
 }
 
-/// @brief
-_Noreturn void taskCrossZero(void* pvParameters) {
-    PRINT("TASK x0\r\n");
-    for(;;) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        if(xSemaphoreTake(xCounterMutex, pdMS_TO_TICKS(100))) {
-            x0Count = counter;
-            counter = 0;
-            xSemaphoreGive(xCounterMutex);
-        }
+/// @brief 创建并启动定时器（在初始化代码中调用）
+void CreateCrossZeroTimer() {
+    // 创建自动重载的定时器，周期1000ms
+    TimerHandle_t xCrossZeroTimer = xTimerCreate(
+        "X0TIM", // 定时器名称
+        pdMS_TO_TICKS(1000), // 定时周期（1秒）
+        pdTRUE, // 自动重载
+        0, // 定时器ID
+        CrossZeroTimerCallback // 回调函数
+        );
+
+    if(xCrossZeroTimer != NULL) {
+        xTimerStart(xCrossZeroTimer, 0); // 启动定时器
     }
 }
 
@@ -270,21 +268,36 @@ _Noreturn void taskX0Counter(void* pvParameters) {
     }
 }
 
+static PID pid = {
+    .kp = 2, // 建议初始值，可调
+    .ki = 1, // 每ms累加
+    .kd = 1, // 微分系数
+    .lastErr = 0,
+    .intEg = 0
+};
+
 /// @brief
 _Noreturn void taskControl(void* pvParameters) {
-    // u8 lastPeriod = 0;
     for(;;) {
         if(!flag.power) {
             flag.heating = false;
             vTaskDelay(pdMS_TO_TICKS(1));
             continue;
         }
-        state.curValue = thVal;
-        state.curTemp = ADCToTemp(thVal);
-        flag.heating = true;
-        u8 period = TempToPeriod(state.curTemp, state.dstTemp);
-        if(state.curTemp < state.dstTemp) {
+        if(thVal == VAL_MAX) {
+            flag.power = false;
+            flag.heating = false;
+            flag.requireRST = true;
+            xSemaphoreTake(x595Mutex, portMAX_DELAY);
+            hc595Data |= LED_WARN;
+            xSemaphoreGive(x595Mutex);
+            printf("TH Offline!\r\n");
+        }
+        // state.curTemp = ADCToTemp(thVal);
+        const u8 period = PIDUpdate(&pid, thVal, dstVal);
+        if(period != 0) {
             flag.heating = true;
+            triggerPeriod = period;
         }
         else {
             flag.heating = false;
@@ -300,8 +313,8 @@ _Noreturn void taskShowTemp(void* pvParameters) {
             vTaskDelay(TICK_INFO);
             continue;
         }
-        u16 highTick = pdMS_TO_TICKS(500);
-        u16 lowTick = pdMS_TO_TICKS(500);
+        u16 highTick = 0;
+        u16 lowTick = 0;
         PeriodToLEDf(triggerPeriod, &highTick, &lowTick);
         if(xSemaphoreTake(x595Mutex, portMAX_DELAY)) {
             hc595Data |= LED_TEMP;
@@ -321,8 +334,8 @@ _Noreturn void taskShowTemp(void* pvParameters) {
  */
 __attribute__((interrupt())) void EXTI15_8_IRQHandler(void) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    if(EXTI_GetITStatus(LINE_CROSSZERO) != RESET) {
-        EXTI_ClearITPendingBit(LINE_CROSSZERO);
+    if(EXTI_GetITStatus(LINE_X0) != RESET) {
+        EXTI_ClearITPendingBit(LINE_X0);
         xSemaphoreGiveFromISR(xZeroSemaphore, &xHigherPriorityTaskWoken);
         TriggerOnce();
     }
@@ -371,7 +384,6 @@ _Noreturn void taskHC595Out(void* pvParameters) {
         if(lastState != hc595Data) {
             taskENTER_CRITICAL();
             u8 data = (u8)~hc595Data;
-            // __asm__ volatile ("nop");
             taskEXIT_CRITICAL();
             for(u8 i = 0; i < 8; i++) {
                 if(data & 0x80)
@@ -415,10 +427,9 @@ void taskHello(void* pvParameters) {
 static void handleKey(const u8 v) {
 #define MASK(bin) ((v & bin) == 0)
     if(v == 0b01111111) {
-        printf("TH:%u X/S:%u T:%u\r\n", thVal, x0Count, state.dstTemp);
+        printf("TH:%u X/S:%u T:%u\r\n", thVal, x0Count, dstVal);
     }
-    else if(MASK(BTN_DBG)) // DBG
-    {
+    else if(MASK(BTN_DBG)) { // DBG
         if(MASK(BTN_RST)) {
             if(HandlerHello == NULL) {
                 printf("OwO\r\n");
@@ -426,9 +437,8 @@ static void handleKey(const u8 v) {
             }
         }
         else if(MASK(BTN_PWR)) {
-            //手动触发一次以测试
             printf("*");
-            TriggerOnce();
+            TriggerOnce(); //手动触发一次以测试
         }
         else if(MASK(BTN_ADD)) {
             if(triggerPeriod < MAX_PERIOD) {
@@ -444,18 +454,20 @@ static void handleKey(const u8 v) {
         }
     }
     else if(MASK(BTN_ADD)) {
-        if(state.dstTemp < TEMP_MAX)
-            state.dstTemp += TEMP_STEP;
-        printf("T:Val=%u\r\n", state.dstValue);
+        if(dstVal < VAL_MAX) {
+            dstVal += VAL_STEP;
+            printf("T+:Val=%u\r\n", dstVal);
+        }
     }
     else if(MASK(BTN_SUB)) {
-        if(state.dstTemp < TEMP_MAX)
-            state.dstTemp -= TEMP_STEP;
-        printf("T:Val=%u\r\n", state.dstValue);
+        if(dstVal > VAL_STEP) {
+            dstVal -= VAL_STEP;
+            printf("T-:Val=%u\r\n", dstVal);
+        }
     }
     else if(MASK(BTN_RST)) {
-        state.dstTemp = TEMP_DEF;
-        printf("T:Val=%u\r\n", state.dstValue);
+        dstVal = VAL_DEF;
+        printf("T*:Val=%u\r\n", dstVal);
     }
     else if(MASK(BTN_PWR)) {
         flag.power = !flag.power;
@@ -551,9 +563,9 @@ int main(void) {
     SystemCoreClockUpdate();
     // Delay_Init();
     USART_Printf_Init(115200);
-    printf("SystemClk:%lu\r\n", SystemCoreClock);
+    printf("SysClk:%lu\r\n", SystemCoreClock);
     printf("ChipID:%08x\r\n", (u8)DBGMCU_GetCHIPID());
-    printf("FreeRTOS Kernel Version:%s\r\n", tskKERNEL_VERSION_NUMBER);
+    printf("FreeRTOS Ver:%s\r\n", tskKERNEL_VERSION_NUMBER);
     RCC_Cfg();
     UART2_CFG(115200);
 
@@ -561,7 +573,7 @@ int main(void) {
     ADCInit();
     TIM2Init();
     EXTIInit();
-    FlagInit();
+    StateInit();
 
     xZeroSemaphore = xSemaphoreCreateBinary();
     xCounterMutex = xSemaphoreCreateMutex();
@@ -569,9 +581,8 @@ int main(void) {
     x595Mutex = xSemaphoreCreateMutex();
 
 #define TSK(func,handler,depth,priority) xTaskCreate(func,#func,depth,NULL,priority,handler)
-    TSK(taskHC595Out, &Handler595DIS, TASK_STK_SIZE4, PRIO_DISPLAY);
-    TSK(taskHC165In, &Handler165IN, TASK_STK_SIZE4, PRIO_INPUT);
-    TSK(taskCrossZero, &HandlerCrossZero, TASK_STK_SIZE3, PRIO_SENSOR);
+    TSK(taskHC595Out, &Handler595DIS, TASK_STK_SIZE3, PRIO_DISPLAY);
+    TSK(taskHC165In, &Handler165IN, TASK_STK_SIZE3, PRIO_INPUT);
     TSK(taskX0Counter, NULL, TASK_STK_SIZE3, PRIO_INFO);
     TSK(taskReadTH, &HandlerReadTH, TASK_STK_SIZE3, PRIO_SENSOR);
     TSK(taskUARTCmd, NULL, TASK_STK_SIZE3, PRIO_INPUT);
@@ -580,6 +591,8 @@ int main(void) {
 
     TSK(taskHello, &HandlerHello, TASK_STK_SIZE2, PRIO_INFO);
     TSK(taskControl, NULL, TASK_STK_SIZE5, PRIO_INPUT);
+
+    CreateCrossZeroTimer();
     vTaskStartScheduler();
     // ReSharper disable once CppDFAEndlessLoop
     for(;;)
