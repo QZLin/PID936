@@ -5,7 +5,7 @@ set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR RISC-V)
 
 # 设置项目名称和语言
-project(CH32xFreeRTOS C ASM)
+project(CH32xPID936 C ASM)
 
 # 禁用编译器测试
 set(CMAKE_C_COMPILER_WORKS TRUE)
@@ -29,7 +29,7 @@ set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")  # 防止测试时链接执�
 # 编译选项
 set(CMAKE_C_FLAGS "-march=rv32imacxw -mabi=ilp32 -msmall-data-limit=8 -msave-restore -fmax-errors=20 -Os -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -fno-common -Wunused -g")
 set(CMAKE_ASM_FLAGS "-march=rv32imacxw -mabi=ilp32 -msmall-data-limit=8 -x assembler-with-cpp")
-set(CMAKE_EXE_LINKER_FLAGS "-T ${CMAKE_SOURCE_DIR}/Ld/Link.ld -nostartfiles -Xlinker --gc-sections -Xlinker --print-memory-usage -Wl,-Map,${CMAKE_BINARY_DIR}/CH32xFreeRTOS.map --specs=nano.specs --specs=nosys.specs")
+set(CMAKE_EXE_LINKER_FLAGS "-T ${CMAKE_SOURCE_DIR}/Ld/Link.ld -nostartfiles -Xlinker --gc-sections -Xlinker --print-memory-usage -Wl,-Map,${CMAKE_BINARY_DIR}/CH32xPID936.map --specs=nano.specs --specs=nosys.specs")
 set(CMAKE_C_LINK_EXECUTABLE "<CMAKE_C_COMPILER> <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
 
 # 禁用所有默认链接库
@@ -64,7 +64,7 @@ include_directories(
 )
 
 # 创建可执行文件
-add_executable(CH32xFreeRTOS
+add_executable(CH32xPID936
     ${CORE_SOURCES}
     ${DEBUG_SOURCES}
     ${FREERTOS_SOURCES}
@@ -74,17 +74,17 @@ add_executable(CH32xFreeRTOS
 )
 
 # 设置输出目录
-set_target_properties(CH32xFreeRTOS PROPERTIES
+set_target_properties(CH32xPID936 PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
 # 链接数学库
-target_link_libraries(CH32xFreeRTOS m)
+target_link_libraries(CH32xPID936 m)
 
 # 生成hex文件
-add_custom_command(TARGET CH32xFreeRTOS POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:CH32xFreeRTOS> ${CMAKE_BINARY_DIR}/CH32xFreeRTOS.hex
-    COMMAND ${CMAKE_OBJDUMP} --all-headers --demangle --disassemble -M xw $<TARGET_FILE:CH32xFreeRTOS> > ${CMAKE_BINARY_DIR}/CH32xFreeRTOS.lst
-    COMMAND ${CMAKE_SIZE} --format=berkeley $<TARGET_FILE:CH32xFreeRTOS> > ${CMAKE_BINARY_DIR}/CH32xFreeRTOS.siz
+add_custom_command(TARGET CH32xPID936 POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:CH32xPID936> ${CMAKE_BINARY_DIR}/CH32xPID936.hex
+    COMMAND ${CMAKE_OBJDUMP} --all-headers --demangle --disassemble -M xw $<TARGET_FILE:CH32xPID936> > ${CMAKE_BINARY_DIR}/CH32xPID936.lst
+    COMMAND ${CMAKE_SIZE} --format=berkeley $<TARGET_FILE:CH32xPID936> > ${CMAKE_BINARY_DIR}/CH32xPID936.siz
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 )

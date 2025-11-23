@@ -429,7 +429,8 @@ static void handleKey(const u8 v) {
     if(v == 0b01111111) {
         printf("TH:%u X/S:%u T:%u\r\n", thVal, x0Count, dstVal);
     }
-    else if(MASK(BTN_DBG)) { // DBG
+    else if(MASK(BTN_DBG)) {
+        // DBG
         if(MASK(BTN_RST)) {
             if(HandlerHello == NULL) {
                 printf("OwO\r\n");

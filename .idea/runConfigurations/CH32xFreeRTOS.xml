@@ -1,7 +1,0 @@
-<component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="CH32xFreeRTOS" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="flash --chip CH32X035 .\cmake-build-debug\CH32xFreeRTOS.hex" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="true" WORKING_DIR="file://$ProjectFileDir$" PASS_PARENT_ENVS_2="true" PROJECT_NAME="CH32xFreeRTOS" TARGET_NAME="CH32xFreeRTOS" CONFIG_NAME="Debug" RUN_PATH="./.idea/wlink.exe">
-    <method v="2">
-      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
-    </method>
-  </configuration>
-</component>

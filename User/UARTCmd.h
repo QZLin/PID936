@@ -6,8 +6,7 @@
 #define UART_CMD_BUFFER_SIZE 64
 #define MAX_ARGS 8
 
-typedef struct
-{
+typedef struct {
     uint8_t rxBuffer[UART_RX_BUFFER_SIZE];
     uint16_t rxIndex;
     uint8_t cmdBuffer[UART_CMD_BUFFER_SIZE];
