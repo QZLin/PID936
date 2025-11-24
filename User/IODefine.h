@@ -42,13 +42,20 @@
 #define ADC_W ADC1
 #define ADC_CH_W ADC_Channel_1
 
+#define LED_READY 0b00000001
+#define LED_WARN  0b00000010
+#define LED3      0b00000100
+#define LED4      0b00001000
+#define LED5      0b00010000
+#define LED6      0b00100000
 #define LED_TEMP  0b01000000
 #define LED_PWR   0b10000000
-#define LED_WARN  0b00000010
-#define LED_READY 0b00000001
 
-#define BTN_DBG 0b10000000
 #define BTN_PWR 0b00000001
 #define BTN_RST 0b00000010
 #define BTN_SUB 0b00000100
 #define BTN_ADD 0b00001000
+#define BTN_5   0b00010000
+#define BTN_6   0b00100000
+#define BTN_7   0b01000000
+#define BTN_DBG 0b10000000

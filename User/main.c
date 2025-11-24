@@ -2,6 +2,7 @@
 Project: PID936/CH32x033F8P6
 */
 // ReSharper disable CppRedundantInlineSpecifier
+#include <stdbool.h>
 #include "ch32x035_conf.h"
 #include "debug.h"
 #include "assert.h"
@@ -11,42 +12,32 @@ Project: PID936/CH32x033F8P6
 #include "task.h"
 #include "semphr.h"
 #include "queue.h"
+#include "timers.h"
 
 #include "IODefine.h"
-#include "DevUtil.h"
+#include "Util.h"
 #include "UARTCmd.h"
 #include "Parameter.h"
 
 /* Global define */
-#include <stdbool.h>
 #include "FreeRTOSDef.h"
-#include "timers.h"
 
 /* Global Variable */
-TaskHandle_t Task1Task_Handler, Task2Task_Handler;
-TaskHandle_t Handler595DIS, Handler165IN, HandlerCrossZero, HandlerReadTH,
-             HandlerControl;
-TaskHandle_t HandlerHello;
-//
-volatile u8 hc595Data = LED_READY;
-volatile u8 key = 0;
-// 50Hz, t=0.02s interval=0.01s=10ms=10 000us
-volatile u8 triggerPeriod = 1;
+volatile u8 hc595Data = LED_READY, key = 0, triggerPeriod = 1; // 1-99 0.1ms/number
+volatile u16 thVal = 0, dstVal = 0;
 volatile Flag_t flag = {0};
+static PID pid = {
+    .kp = 5, // 建议初始值，可调
+    .ki = 1, // 每ms累加
+    .kd = 1, // 微分系数
+    .lastErr = 0,
+    .intEg = 0
+};
 //
-volatile u16 thVal = 0;
-volatile u16 dstVal = 0;
-//
-u16 counter = 0;
-u16 x0Count = 0;
-
-SemaphoreHandle_t xZeroSemaphore = NULL;
-SemaphoreHandle_t xCounterMutex = NULL;
-SemaphoreHandle_t x595Mutex = NULL;
-
-//UART DEF
-u8 TxBuffer2[16] = {0};
-u8 RxBuffer2[16] = {0};
+TaskHandle_t HandlerHello;
+u16 counter = 0, x0Count = 0;
+SemaphoreHandle_t xZeroSemaphore = NULL, xCounterMutex = NULL, x595Mutex = NULL;
+u8 TxBuffer2[16] = {0}, RxBuffer2[16] = {0};
 
 static void print_binary(const u8 num) {
     for(int i = 7; i >= 0; i--)
@@ -55,7 +46,7 @@ static void print_binary(const u8 num) {
     putchar(10);
 }
 
-static inline void RCC_Cfg() {
+static inline void RCCInit() {
     RCC_APB2PeriphClockCmd(
         RCC_APB2Periph_GPIOA | RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC |
         RCC_APB2Periph_ADC1 | RCC_APB2Periph_AFIO, ENABLE);
@@ -90,7 +81,7 @@ static inline void GPIOInit(void) {
 }
 
 // ReSharper disable once CppDFAConstantParameter
-static inline void UART2_CFG(const uint32_t baud_rate) {
+static inline void UART2Init(const uint32_t baud_rate) {
     GPIO_InitTypeDef GPIO_InitStructure = {0};
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     USART_InitTypeDef USART_InitStructure = {0};
@@ -204,10 +195,6 @@ static inline void StateInit() {
     flag.requireRST = false;
 
     dstVal = VAL_DEF;
-    // state.curValue = 0;
-    // state.dstValue = VAL_DEF;
-    // state.curTemp = 0;
-    // state.dstTemp = 0;
 }
 
 static inline void TIM2_StartSingleShot(void) {
@@ -226,7 +213,6 @@ static inline void TriggerOnce(void) {
         return;
     GPIO_SetBits(PORT_CONTROL, PIN_CONTROL);
     TIM2_StartSingleShot();
-
 }
 
 /// @brief 定时器回调函数
@@ -238,10 +224,9 @@ void CrossZeroTimerCallback(TimerHandle_t xTimer) {
     }
 }
 
-/// @brief 创建并启动定时器（在初始化代码中调用）
+/// @brief 创建并启动定时器
 void CreateCrossZeroTimer() {
-    // 创建自动重载的定时器，周期1000ms
-    TimerHandle_t xCrossZeroTimer = xTimerCreate(
+    TimerHandle_t xCrossZeroTimer = xTimerCreate( // 创建自动重载的定时器，周期1000ms
         "X0TIM", // 定时器名称
         pdMS_TO_TICKS(1000), // 定时周期（1秒）
         pdTRUE, // 自动重载
@@ -257,7 +242,6 @@ void CreateCrossZeroTimer() {
 /// @brief cross zero counter per second
 _Noreturn void taskX0Counter(void* pvParameters) {
     GPIO_ResetBits(PORT_CONTROL, PIN_CONTROL);
-
     for(;;) {
         if(xSemaphoreTake(xZeroSemaphore, portMAX_DELAY) == pdTRUE) {
             if(xSemaphoreTake(xCounterMutex, portMAX_DELAY) == pdTRUE) {
@@ -268,13 +252,6 @@ _Noreturn void taskX0Counter(void* pvParameters) {
     }
 }
 
-static PID pid = {
-    .kp = 2, // 建议初始值，可调
-    .ki = 1, // 每ms累加
-    .kd = 1, // 微分系数
-    .lastErr = 0,
-    .intEg = 0
-};
 
 /// @brief
 _Noreturn void taskControl(void* pvParameters) {
@@ -288,9 +265,7 @@ _Noreturn void taskControl(void* pvParameters) {
             flag.power = false;
             flag.heating = false;
             flag.requireRST = true;
-            xSemaphoreTake(x595Mutex, portMAX_DELAY);
-            hc595Data |= LED_WARN;
-            xSemaphoreGive(x595Mutex);
+            SetLED(LED_WARN);
             printf("TH Offline!\r\n");
         }
         // state.curTemp = ADCToTemp(thVal);
@@ -306,33 +281,79 @@ _Noreturn void taskControl(void* pvParameters) {
     }
 }
 
-_Noreturn void taskShowTemp(void* pvParameters) {
+_Noreturn void taskShowPeriod(void* pvParameters) {
     for(;;) {
         if(!flag.heating) {
-            hc595Data &= ~LED_TEMP;
+            UnSetLED(LED_TEMP);
             vTaskDelay(TICK_INFO);
             continue;
         }
         u16 highTick = 0;
         u16 lowTick = 0;
         PeriodToLEDf(triggerPeriod, &highTick, &lowTick);
-        if(xSemaphoreTake(x595Mutex, portMAX_DELAY)) {
-            hc595Data |= LED_TEMP;
-            xSemaphoreGive(x595Mutex);
-        }
+        SetLED(LED_TEMP);
         vTaskDelay(highTick);
-        if(xSemaphoreTake(x595Mutex, portMAX_DELAY)) {
-            hc595Data &= ~LED_TEMP;
-            xSemaphoreGive(x595Mutex);
-        }
+        UnSetLED(LED_TEMP);
         vTaskDelay(lowTick);
     }
 }
 
-/**
- * @brief 处理中断线 11（即 PA11）
- */
-__attribute__((interrupt())) void EXTI15_8_IRQHandler(void) {
+_Noreturn void taskShowTarget(void* pvParameters) {
+#define T 100
+    for(;;) {
+        vTaskDelayMs(1000);
+        const u16 localDst = dstVal;
+        const u8 t10e2 = localDst / 100 % 10;
+        u8 t10e3;
+        if(localDst < 1000)
+            t10e3 = 0;
+        else if(localDst < 2000)
+            t10e3 = 1;
+        else if(localDst < 3000)
+            t10e3 = 2;
+        else if(localDst < 4000)
+            t10e3 = 3;
+        else
+            t10e3 = 4;
+
+        for(int i = 0; i < t10e3; i++) {
+            SetLED(LED3);
+            vTaskDelayMs(T);
+            UnSetLED(LED3);
+            vTaskDelayMs(T*2);
+        }
+        if(t10e2 == 0)
+            continue;
+
+        u8 shortFlashes = 0, hasLongFlash = 0;
+        if(t10e2 == 1)
+            shortFlashes = 1;
+        else if(t10e2 == 2)
+            hasLongFlash = 1;
+        else {
+            // 3-9: 短闪表示2的个数，长闪表示+1
+            shortFlashes = t10e2 >> 1; // 除以2，等价于 t10e2 / 2
+            hasLongFlash = t10e2 & 1; // 检查最低位，等价于 t10e2 % 2
+        }
+
+        for(int i = 0; i < shortFlashes; i++) {
+            SetLED(LED4);
+            vTaskDelayMs(T);
+            UnSetLED(LED4);
+            vTaskDelayMs(T*2);
+        }
+        if(hasLongFlash) {
+            SetLED(LED4);
+            vTaskDelayMs(T*3);
+            UnSetLED(LED4);
+            vTaskDelayMs(T*2);
+        }
+    }
+}
+
+
+/// @brief 处理中断线 11（即 PA11）
+INT void EXTI15_8_IRQHandler(void) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     if(EXTI_GetITStatus(LINE_X0) != RESET) {
         EXTI_ClearITPendingBit(LINE_X0);
@@ -342,10 +363,8 @@ __attribute__((interrupt())) void EXTI15_8_IRQHandler(void) {
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-/**
- * @brief TIM2
- */
-__attribute__((interrupt())) void TIM2_UP_IRQHandler(void) {
+/// @brief TIM2 UP EXTI
+INT void TIM2_UP_IRQHandler(void) {
     if(TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET) {
         TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
         GPIO_ResetBits(PORT_CONTROL, PIN_CONTROL); // 拉低
@@ -353,10 +372,8 @@ __attribute__((interrupt())) void TIM2_UP_IRQHandler(void) {
 }
 
 #ifdef DEV_INFO
-/**
- * @brief RST
- */
-__attribute__((interrupt())) void EXTI7_0_IRQHandler(void) {
+/// @brief RST
+INT void EXTI7_0_IRQHandler(void) {
     if(EXTI_GetITStatus(EXTI_Line7) != RESET) {
         EXTI_ClearITPendingBit(EXTI_Line7);
         printf("RST\r\n");
@@ -369,7 +386,7 @@ __attribute__((interrupt())) void EXTI7_0_IRQHandler(void) {
 /**
  * @brief   This function handles USART2 global interrupt request.
  */
-__attribute__((interrupt())) void USART2_IRQHandler(void) {
+INT void USART2_IRQHandler(void) {
     if(USART_GetITStatus(USART2, USART_IT_RXNE) != RESET) {
         const u8 data = USART_ReceiveData(USART2);
         UART_ReceiveHandler(data);
@@ -427,10 +444,9 @@ void taskHello(void* pvParameters) {
 static void handleKey(const u8 v) {
 #define MASK(bin) ((v & bin) == 0)
     if(v == 0b01111111) {
-        printf("TH:%u X/S:%u T:%u\r\n", thVal, x0Count, dstVal);
+        printf("TH:%u X0:%u T:%u\r\n", thVal, x0Count, dstVal);
     }
     else if(MASK(BTN_DBG)) {
-        // DBG
         if(MASK(BTN_RST)) {
             if(HandlerHello == NULL) {
                 printf("OwO\r\n");
@@ -474,10 +490,10 @@ static void handleKey(const u8 v) {
         flag.power = !flag.power;
         xSemaphoreTake(x595Mutex, portMAX_DELAY);
         if(flag.power) {
-            hc595Data |= LED_PWR;
+            SetMask(hc595Data, LED_PWR);
         }
         else {
-            hc595Data &= ~LED_PWR;
+            UnSetMask(hc595Data, LED_PWR);
         }
         xSemaphoreGive(x595Mutex);
     }
@@ -567,8 +583,8 @@ int main(void) {
     printf("SysClk:%lu\r\n", SystemCoreClock);
     printf("ChipID:%08x\r\n", (u8)DBGMCU_GetCHIPID());
     printf("FreeRTOS Ver:%s\r\n", tskKERNEL_VERSION_NUMBER);
-    RCC_Cfg();
-    UART2_CFG(115200);
+    RCCInit();
+    UART2Init(115200);
 
     GPIOInit();
     ADCInit();
@@ -578,20 +594,21 @@ int main(void) {
 
     xZeroSemaphore = xSemaphoreCreateBinary();
     xCounterMutex = xSemaphoreCreateMutex();
-
     x595Mutex = xSemaphoreCreateMutex();
 
 #define TSK(func,handler,depth,priority) xTaskCreate(func,#func,depth,NULL,priority,handler)
-    TSK(taskHC595Out, &Handler595DIS, TASK_STK_SIZE3, PRIO_DISPLAY);
-    TSK(taskHC165In, &Handler165IN, TASK_STK_SIZE3, PRIO_INPUT);
-    TSK(taskX0Counter, NULL, TASK_STK_SIZE3, PRIO_INFO);
-    TSK(taskReadTH, &HandlerReadTH, TASK_STK_SIZE3, PRIO_SENSOR);
+    TSK(taskReadTH, NULL, TASK_STK_SIZE3, PRIO_SENSOR);
+    TSK(taskHC165In, NULL, TASK_STK_SIZE3, PRIO_INPUT);
     TSK(taskUARTCmd, NULL, TASK_STK_SIZE3, PRIO_INPUT);
+    TSK(taskControl, NULL, TASK_STK_SIZE5, PRIO_INPUT);
+    TSK(taskHC595Out, NULL, TASK_STK_SIZE3, PRIO_DISPLAY);
 
-    TSK(taskShowTemp, NULL, TASK_STK_SIZE2, PRIO_INFO);
+
+    TSK(taskX0Counter, NULL, TASK_STK_SIZE3, PRIO_INFO);
+    TSK(taskShowPeriod, NULL, TASK_STK_SIZE2, PRIO_INFO);
+    TSK(taskShowTarget, NULL, TASK_STK_SIZE2, PRIO_INFO);
 
     TSK(taskHello, &HandlerHello, TASK_STK_SIZE2, PRIO_INFO);
-    TSK(taskControl, NULL, TASK_STK_SIZE5, PRIO_INPUT);
 
     CreateCrossZeroTimer();
     vTaskStartScheduler();
@@ -601,15 +618,13 @@ int main(void) {
 }
 
 /// @brief
-void vApplicationStackOverflowHook(TaskHandle_t xTask, char* pcTaskName) {
+_Noreturn void vApplicationStackOverflowHook(TaskHandle_t xTask, char* pcTaskName) {
     printf("\r\nStack overflow in task: %s\r\n", pcTaskName);
-    // ReSharper disable once CppDFAEndlessLoop
     for(;;);
 }
 
 /// @brief
-void vApplicationMallocFailedHook(void) {
+_Noreturn void vApplicationMallocFailedHook(void) {
     printf("\r\nMALLOC FAILED! Free Heap: %u\r\n", xPortGetFreeHeapSize());
-    // ReSharper disable once CppDFAEndlessLoop
     for(;;);
 }

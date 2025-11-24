@@ -3,15 +3,16 @@
 
 // curValue 和 dstValue 范围 0-4095
 // 返回 period 0-99，对应 0~9.9ms 导通时间
-uint8_t PIDUpdate(PID* p, const uint16_t curValue, const uint16_t dstValue) {
+uint8_t PIDUpdate(PID* p, const uint16_t curValue, const uint16_t dstValue)
+{
     const int32_t tempErr = (int32_t)dstValue - (int32_t)curValue;
     const int16_t err = (int16_t)tempErr;
 
     // 积分累加，每ms步长小
     p->intEg += err;
-    if(p->intEg > 5000)
+    if (p->intEg > 5000)
         p->intEg = 5000;
-    if(p->intEg < -5000)
+    if (p->intEg < -5000)
         p->intEg = -5000;
 
     const int32_t tempDiff = (int32_t)err - (int32_t)p->lastErr;
@@ -26,17 +27,18 @@ uint8_t PIDUpdate(PID* p, const uint16_t curValue, const uint16_t dstValue) {
     // 缩放映射到 0-99
     out /= 200; // 缩放系数，可根据系统响应调整
 
-    if(out < 0)
+    if (out < 0)
         out = 0;
-    if(out > 99)
+    if (out > 99)
         out = 99;
 
     return (uint8_t)out;
 }
 
 
-u16 ADCToTemp(const u16 adcVal) {
-    if(adcVal == VAL_MAX)
+u16 ADCToTemp(const u16 adcVal)
+{
+    if (adcVal == VAL_MAX)
         return UINT16_MAX;
     return adcVal / 4096 * 500;
 }
@@ -89,9 +91,10 @@ const TickType_t led_low_ticks_pdms[100] = {
     pdMS_TO_TICKS(80), pdMS_TO_TICKS(77), pdMS_TO_TICKS(74), pdMS_TO_TICKS(70), pdMS_TO_TICKS(66)
 };
 
-void PeriodToLEDf(const uint8_t period, uint16_t* highTick, uint16_t* lowTick) {
+void PeriodToLEDf(const uint8_t period, uint16_t* highTick, uint16_t* lowTick)
+{
     uint8_t idx = period;
-    if(idx > 99)
+    if (idx > 99)
         idx = 99; // 限幅
 
     *highTick = (uint16_t)led_high_ticks_pdms[idx];

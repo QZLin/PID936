@@ -23,7 +23,7 @@ void HardFault_Handler(void) __attribute__
  *
  * @return  none
  */
-void NMI_Handler(void) {
+_Noreturn void NMI_Handler(void) {
     while(1) {
     }
 }
@@ -35,7 +35,7 @@ void NMI_Handler(void) {
  *
  * @return  none
  */
-void HardFault_Handler(void) {
+_Noreturn void HardFault_Handler(void) {
     NVIC_SystemReset();
     while(1) {
     }

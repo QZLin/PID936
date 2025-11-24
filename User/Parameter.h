@@ -4,7 +4,8 @@
 
 #include "ch32x035_conf.h"
 
-typedef struct {
+typedef struct
+{
     int16_t kp;
     int16_t ki;
     int16_t kd;
@@ -12,7 +13,8 @@ typedef struct {
     int32_t intEg;
 } PID;
 
-typedef struct Flag {
+typedef struct Flag
+{
     bool power : 1;
     bool heating : 1;
     bool tempChanged : 1;
@@ -41,3 +43,4 @@ void PeriodToLEDf(u8 period, u16* highTick, u16* lowTick);
 
 //LED_MAX_F 3Hz
 //LED_MIN_F .5Hz
+#define FLASH_3HZ 333

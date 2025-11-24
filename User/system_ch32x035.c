@@ -58,7 +58,7 @@ static void SetSysClockTo48_HSI(void);
 /*********************************************************************
  * @fn      SystemInit
  *
- * @brief   Setup the microcontroller system Initialize the Embedded Flash Interface,
+ * @brief   Set up the microcontroller system Initialize the Embedded Flash Interface,
  *        update the SystemCoreClock variable.
  *
  * @return  none

@@ -9,7 +9,6 @@
 
 extern volatile u16 thVal;
 extern volatile u16 dstVal;
-
 extern u16 x0Count;
 extern volatile u8 triggerPeriod;
 
